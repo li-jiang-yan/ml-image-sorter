@@ -1,0 +1,62 @@
+[tool.ruff]
+# PEP 8: Indentation
+# https://peps.python.org/pep-0008/#indentation
+indent-width = 4
+
+# PEP 8: Maximum Line Length
+# https://peps.python.org/pep-0008/#maximum-line-length
+line-length = 99
+
+target-version = "py311"
+
+
+[tool.ruff.lint]
+select = [
+  # pycodestyle
+  "E",
+  # Pyflakes
+  "F",
+  # pyupgrade
+  "UP",
+  # flake8-bugbear
+  "B",
+  # flake8-simplify
+  "SIM",
+  # isort
+  "I",
+]
+
+# https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+ignore = [
+  "W191",
+  "E111",
+  "E114",
+  "E117",
+  "D203",
+  "D206",
+  "D300",
+  "Q000",
+  "Q001",
+  "Q002",
+  "Q003",
+  "Q004",
+  "COM812",
+  "COM819"
+]
+
+
+[tool.ruff.format]
+
+# PEP 8: Tabs or Spaces?
+# https://peps.python.org/pep-0008/#tabs-or-spaces
+indent-style = "space"
+
+quote-style = "single"
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
