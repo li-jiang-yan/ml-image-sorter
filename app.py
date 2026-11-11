@@ -8,26 +8,50 @@ from PySide6 import QtCore, QtGui, QtWidgets
 pillow_heif.register_heif_opener()
 
 
-def load_heic_to_pixmap(file_path):
-    # Open the HEIC file using Pillow
-    image = Image.open(file_path)
-    # Ensure it's converted to a mode PyQt handles cleanly (e.g., RGBA)
-    image = image.convert('RGBA')
+def load_image_to_qimage(file_path):
+    """Decode an image in a worker thread and return an owned QImage."""
+    if file_path.lower().endswith('.heic'):
+        image = Image.open(file_path).convert('RGBA')
+        data = image.tobytes('raw', 'RGBA')
+        return QtGui.QImage(
+            data,
+            image.width,
+            image.height,
+            QtGui.QImage.Format_RGBA8888,
+        ).copy()
 
-    # Convert PIL Image to QImage
-    data = image.tobytes('raw', 'RGBA')
-    q_image = QtGui.QImage(data, image.width, image.height, QtGui.QImage.Format_RGBA8888)
+    image = QtGui.QImage(file_path)
+    return image if not image.isNull() else None
 
-    return QtGui.QPixmap.fromImage(q_image)
+
+class ImageLoaderSignals(QtCore.QObject):
+    image_loaded = QtCore.Signal(str, QtGui.QImage)
+    finished = QtCore.Signal()
+
+
+class ImageLoader(QtCore.QRunnable):
+    def __init__(self, file_paths):
+        super().__init__()
+        self.file_paths = file_paths
+        self.signals = ImageLoaderSignals()
+
+    @QtCore.Slot()
+    def run(self):
+        try:
+            for file_path in self.file_paths:
+                try:
+                    image = load_image_to_qimage(file_path)
+                    if image is not None:
+                        self.signals.image_loaded.emit(file_path, image)
+                except Exception as error:
+                    print(f'Could not load {file_path}: {error}')
+        finally:
+            self.signals.finished.emit()
 
 
 def load_pixmap(file_path):
-    if file_path.lower().endswith('.heic'):
-        pixmap = load_heic_to_pixmap(file_path)
-        return pixmap
-
-    pixmap = QtGui.QPixmap(file_path)
-    return pixmap
+    image = load_image_to_qimage(file_path)
+    return QtGui.QPixmap.fromImage(image) if image is not None else QtGui.QPixmap()
 
 
 class MyWidget(QtWidgets.QWidget):
@@ -53,6 +77,9 @@ class MyWidget(QtWidgets.QWidget):
         self._browse_button.clicked.connect(self.open_folder_dialog)
         self._extract_button.clicked.connect(self.extract_images)
         self._extract_button.setEnabled(False)
+        self._thread_pool = QtCore.QThreadPool.globalInstance()
+        self._image_loader = None
+        self._loaded_image_count = 0
 
         layout.addWidget(QtWidgets.QLabel('Folder'))
         layout.addWidget(self._folder_path)
@@ -103,32 +130,43 @@ class MyWidget(QtWidgets.QWidget):
             )
             return
 
-        columns = 4
-        thumbnail_size = QtCore.QSize(160, 120)
+        self._loaded_image_count = 0
+        self._extract_button.setEnabled(False)
+        self._image_loader = ImageLoader(self._image_files)
+        self._image_loader.signals.image_loaded.connect(self.add_image_to_gallery)
+        self._image_loader.signals.finished.connect(self.finish_loading_images)
+        self._thread_pool.start(self._image_loader)
 
-        all_pixmaps = [
-            {'path': image_path, 'pixmap': load_pixmap(image_path)}
-            for image_path in self._image_files
-        ]
-        pixmaps = [pixmap for pixmap in all_pixmaps if not pixmap['pixmap'].isNull()]
-        for index, pixmap in enumerate(pixmaps):
-            image_path = pixmap['path']
-            pixmap = pixmap['pixmap']
+    @QtCore.Slot(str, QtGui.QImage)
+    def add_image_to_gallery(self, image_path, image):
+        # QPixmap creation and widget updates stay on the GUI thread.
+        pixmap = QtGui.QPixmap.fromImage(image)
+        if pixmap.isNull():
+            return
 
-            thumbnail = QtWidgets.QLabel()
-            thumbnail.setPixmap(
-                pixmap.scaled(
-                    thumbnail_size,
-                    QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                    QtCore.Qt.TransformationMode.SmoothTransformation,
-                )
+        thumbnail = QtWidgets.QLabel()
+        thumbnail.setPixmap(
+            pixmap.scaled(
+                QtCore.QSize(160, 120),
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
             )
-            thumbnail.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            thumbnail.setToolTip(image_path)
+        )
+        thumbnail.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        thumbnail.setToolTip(image_path)
 
-            row = index // columns
-            column = index % columns
-            self._gallery_grid.addWidget(thumbnail, row, column)
+        columns = 4
+        row = self._loaded_image_count // columns
+        column = self._loaded_image_count % columns
+        self._gallery_grid.addWidget(thumbnail, row, column)
+        self._loaded_image_count += 1
+
+    @QtCore.Slot()
+    def finish_loading_images(self):
+        if self._loaded_image_count == 0:
+            self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
+        self._image_loader = None
+        self._extract_button.setEnabled(True)
 
 
 if __name__ == '__main__':
