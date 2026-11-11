@@ -7,20 +7,27 @@ import numpy as np
 import pillow_heif
 from PIL import Image
 from PySide6 import QtCore, QtGui, QtWidgets
+from sklearn.cluster import AgglomerativeClustering
 
 pillow_heif.register_heif_opener()
+
+MODEL_PROTO = r'SqueezeNet\SqueezeNet_v1.1\deploy.prototxt'
+MODEL_WEIGHTS = r'SqueezeNet\SqueezeNet_v1.1\squeezenet_v1.1.caffemodel'
+
+net = cv2.dnn.readNetFromCaffe(MODEL_PROTO, MODEL_WEIGHTS)
 
 
 @cache
 def load_image_to_qimage(file_path):
     """Decode an image in a worker thread and return an owned QImage."""
     rgb_array = load_image_to_rgb(file_path)
-    if rgb_array is not None:
-        height, width, channels = rgb_array.shape
-        bytes_per_line = channels * width
-        return QtGui.QImage(
-            rgb_array.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888
-        ).copy()
+    if rgb_array is None:
+        return
+    height, width, channels = rgb_array.shape
+    bytes_per_line = channels * width
+    return QtGui.QImage(
+        rgb_array.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888
+    ).copy()
 
 
 @cache
@@ -32,6 +39,26 @@ def load_image_to_rgb(file_path):
     elif file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
         bgr = cv2.imread(file_path)
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+
+
+@cache
+def embed_image(file_path):
+    rgb_array = load_image_to_rgb(file_path)
+    if rgb_array is None:
+        return
+    bgr_array = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2BGR)
+    blob = cv2.dnn.blobFromImage(
+        bgr_array,
+        scalefactor=1.0 / 255.0,
+        size=(224, 224),
+        mean=(104.0, 117.0, 123.0),  # mean of ImageNet dataset (according to Google)
+        swapRB=True,  # squeezenet is BGR not RGB
+        crop=False,
+    )
+    net.setInput(blob)
+    pool10 = net.forward('pool10')
+    embedding_vector = np.mean(pool10, axis=(2, 3)).flatten()
+    return embedding_vector / np.linalg.norm(embedding_vector)
 
 
 class ImageLoaderSignals(QtCore.QObject):
@@ -62,6 +89,54 @@ class ImageLoader(QtCore.QRunnable):
                     self.signals.progress.emit(completed, total)
         finally:
             self.signals.finished.emit()
+
+
+class ImageEmbedderSignals(QtCore.QObject):
+    image_embedded = QtCore.Signal(str, np.ndarray)
+    progress = QtCore.Signal(int, int)
+    finished = QtCore.Signal()
+
+
+class ImageEmbedder(QtCore.QRunnable):
+    def __init__(self, file_paths):
+        super().__init__()
+        self.file_paths = file_paths
+        self.signals = ImageEmbedderSignals()
+
+    @QtCore.Slot()
+    def run(self):
+        total = len(self.file_paths)
+
+        try:
+            for completed, file_path in enumerate(self.file_paths):
+                try:
+                    if load_image_to_qimage(file_path) is not None:
+                        embedding = embed_image(file_path)
+                        self.signals.image_embedded.emit(file_path, embedding)
+                except Exception as error:
+                    print(f'Could not load {file_path}: {error}')
+                finally:
+                    self.signals.progress.emit(completed, total)
+        finally:
+            self.signals.finished.emit()
+
+
+class ImageClustererSignals(QtCore.QObject):
+    finished = QtCore.Signal(AgglomerativeClustering)
+
+
+class ImageClusterer(QtCore.QRunnable):
+    def __init__(self, embedding_matrix):
+        super().__init__()
+        self.embedding_matrix = embedding_matrix
+        self.signals = ImageClustererSignals()
+
+    @QtCore.Slot()
+    def run(self):
+        model = AgglomerativeClustering(distance_threshold=0, n_clusters=None).fit(
+            self.embedding_matrix
+        )
+        self.signals.finished.emit(model)
 
 
 class MyWidget(QtWidgets.QWidget):
@@ -128,12 +203,17 @@ class MyWidget(QtWidgets.QWidget):
         layout.setContentsMargins(0, top, 0, bottom)
 
         self._cluster_button = QtWidgets.QPushButton('Cluster Images')
+        self._cluster_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
 
         self._cluster_button.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed
         )
+        self._cluster_button.clicked.connect(self.embed_images)
+        self._cluster_slider.setRange(0, 0)
+        self._cluster_slider.setEnabled(False)
 
         layout.addWidget(self._cluster_button, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(self._cluster_slider)
 
         self._clustering_menu.setLayout(layout)
 
@@ -168,7 +248,6 @@ class MyWidget(QtWidgets.QWidget):
         self._browse_button.setEnabled(False)
         self._extract_button.setEnabled(False)
         self._clustering_menu.setVisible(False)
-        self._progress.setVisible(True)
         self._progress.setValue(0)
         self._image_loader = ImageLoader(self._image_files)
         self._image_loader.signals.image_loaded.connect(self.add_image_to_gallery)
@@ -208,11 +287,45 @@ class MyWidget(QtWidgets.QWidget):
     def finish_loading_images(self):
         if self._loaded_image_count == 0:
             self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
+        else:
+            self._clustering_menu.setVisible(True)
+            self._cluster_button.setEnabled(True)
+            self._cluster_slider.setRange(0, 0)
+            self._cluster_slider.setEnabled(False)
         self._image_loader = None
         self._browse_button.setEnabled(True)
         self._extract_button.setEnabled(True)
-        self._progress.setVisible(False)
-        self._clustering_menu.setVisible(True)
+        self._progress.setValue(0)
+
+    def embed_images(self):
+        self._embedding_file_paths = []
+        self._embeddings = []
+        self._cluster_button.setEnabled(False)
+        self._image_embedder = ImageEmbedder(self._image_files)
+        self._image_embedder.signals.image_embedded.connect(self.add_embedding)
+        self._image_embedder.signals.progress.connect(self.update_progress)
+        self._image_embedder.signals.finished.connect(self.finish_embedding_images)
+        self._thread_pool.start(self._image_embedder)
+
+    @QtCore.Slot(str, np.ndarray)
+    def add_embedding(self, image_path, embedding):
+        self._embedding_file_paths.append(image_path)
+        self._embeddings.append(embedding)
+
+    @QtCore.Slot()
+    def finish_embedding_images(self):
+        embedding_matrix = np.array(self._embeddings)
+        self._image_embedder = None
+        self._image_clusterer = ImageClusterer(embedding_matrix)
+        self._image_clusterer.signals.finished.connect(self.finish_clustering_images)
+        self._thread_pool.start(self._image_clusterer)
+
+    @QtCore.Slot(AgglomerativeClustering)
+    def finish_clustering_images(self, model):
+        self._image_clusterer = None
+        self._model = model
+        self._progress.setValue(100)
+        self._cluster_slider.setRange(0, 100)
 
 
 if __name__ == '__main__':
