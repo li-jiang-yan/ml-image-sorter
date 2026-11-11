@@ -26,6 +26,7 @@ def load_image_to_qimage(file_path):
 
 class ImageLoaderSignals(QtCore.QObject):
     image_loaded = QtCore.Signal(str, QtGui.QImage)
+    progress = QtCore.Signal(int, int)
     finished = QtCore.Signal()
 
 
@@ -37,14 +38,18 @@ class ImageLoader(QtCore.QRunnable):
 
     @QtCore.Slot()
     def run(self):
+        total = len(self.file_paths)
+
         try:
-            for file_path in self.file_paths:
+            for completed, file_path in enumerate(self.file_paths):
                 try:
                     image = load_image_to_qimage(file_path)
                     if image is not None:
                         self.signals.image_loaded.emit(file_path, image)
                 except Exception as error:
                     print(f'Could not load {file_path}: {error}')
+                finally:
+                    self.signals.progress.emit(completed, total)
         finally:
             self.signals.finished.emit()
 
@@ -92,6 +97,8 @@ class MyWidget(QtWidgets.QWidget):
         self._image_gallery = QtWidgets.QGroupBox('Image gallery')
         layout = QtWidgets.QVBoxLayout()
 
+        self._progress = QtWidgets.QProgressBar(self)
+
         scroll_area = QtWidgets.QScrollArea()
         scroll_area.setWidgetResizable(True)
 
@@ -100,6 +107,7 @@ class MyWidget(QtWidgets.QWidget):
 
         gallery_content.setLayout(self._gallery_grid)
         scroll_area.setWidget(gallery_content)
+        layout.addWidget(self._progress)
         layout.addWidget(scroll_area)
         self._image_gallery.setLayout(layout)
 
@@ -132,8 +140,10 @@ class MyWidget(QtWidgets.QWidget):
 
         self._loaded_image_count = 0
         self._extract_button.setEnabled(False)
+        self._progress.setValue(0)
         self._image_loader = ImageLoader(self._image_files)
         self._image_loader.signals.image_loaded.connect(self.add_image_to_gallery)
+        self._image_loader.signals.progress.connect(self.update_progress)
         self._image_loader.signals.finished.connect(self.finish_loading_images)
         self._thread_pool.start(self._image_loader)
 
@@ -161,12 +171,17 @@ class MyWidget(QtWidgets.QWidget):
         self._gallery_grid.addWidget(thumbnail, row, column)
         self._loaded_image_count += 1
 
+    @QtCore.Slot(int, int)
+    def update_progress(self, completed, total):
+        self._progress.setValue(completed / total * 100)
+
     @QtCore.Slot()
     def finish_loading_images(self):
         if self._loaded_image_count == 0:
             self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
         self._image_loader = None
         self._extract_button.setEnabled(True)
+        self._progress.setValue(100)
 
 
 if __name__ == '__main__':
