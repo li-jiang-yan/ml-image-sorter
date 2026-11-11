@@ -1,6 +1,9 @@
 import sys
+from functools import cache
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pillow_heif
 from PIL import Image
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -8,20 +11,27 @@ from PySide6 import QtCore, QtGui, QtWidgets
 pillow_heif.register_heif_opener()
 
 
+@cache
 def load_image_to_qimage(file_path):
     """Decode an image in a worker thread and return an owned QImage."""
-    if file_path.lower().endswith('.heic'):
-        image = Image.open(file_path).convert('RGBA')
-        data = image.tobytes('raw', 'RGBA')
+    rgb_array = load_image_to_rgb(file_path)
+    if rgb_array is not None:
+        height, width, channels = rgb_array.shape
+        bytes_per_line = channels * width
         return QtGui.QImage(
-            data,
-            image.width,
-            image.height,
-            QtGui.QImage.Format_RGBA8888,
+            rgb_array.data, width, height, bytes_per_line, QtGui.QImage.Format.Format_RGB888
         ).copy()
 
-    image = QtGui.QImage(file_path)
-    return image if not image.isNull() else None
+
+@cache
+def load_image_to_rgb(file_path):
+    if file_path.lower().endswith('.heic'):
+        pil_img = Image.open(file_path).convert('RGB')
+        return np.array(pil_img)
+
+    elif file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
+        bgr = cv2.imread(file_path)
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
 
 class ImageLoaderSignals(QtCore.QObject):
