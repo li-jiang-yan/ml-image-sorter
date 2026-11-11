@@ -101,6 +101,7 @@ class MyWidget(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout()
 
         self._progress = QtWidgets.QProgressBar(self)
+        self._progress.setValue(0)
 
         scroll_area = QtWidgets.QScrollArea()
         scroll_area.setWidgetResizable(True)
