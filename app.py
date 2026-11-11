@@ -94,6 +94,9 @@ class MyWidget(QtWidgets.QWidget):
         self._folder_upload_box.setLayout(layout)
 
     def create_image_gallery(self):
+        self.create_clustering_menu()
+        self._clustering_menu.setVisible(False)
+
         self._image_gallery = QtWidgets.QGroupBox('Image gallery')
         layout = QtWidgets.QVBoxLayout()
 
@@ -108,8 +111,25 @@ class MyWidget(QtWidgets.QWidget):
         gallery_content.setLayout(self._gallery_grid)
         scroll_area.setWidget(gallery_content)
         layout.addWidget(self._progress)
+        layout.addWidget(self._clustering_menu)
         layout.addWidget(scroll_area)
         self._image_gallery.setLayout(layout)
+
+    def create_clustering_menu(self):
+        self._clustering_menu = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout()
+        _, top, _, bottom = layout.getContentsMargins()
+        layout.setContentsMargins(0, top, 0, bottom)
+
+        self._cluster_button = QtWidgets.QPushButton('Cluster Images')
+
+        self._cluster_button.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed
+        )
+
+        layout.addWidget(self._cluster_button, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+
+        self._clustering_menu.setLayout(layout)
 
     def open_folder_dialog(self):
         self._dir = QtWidgets.QFileDialog.getExistingDirectory()
@@ -140,6 +160,8 @@ class MyWidget(QtWidgets.QWidget):
 
         self._loaded_image_count = 0
         self._extract_button.setEnabled(False)
+        self._clustering_menu.setVisible(False)
+        self._progress.setVisible(True)
         self._progress.setValue(0)
         self._image_loader = ImageLoader(self._image_files)
         self._image_loader.signals.image_loaded.connect(self.add_image_to_gallery)
@@ -181,7 +203,8 @@ class MyWidget(QtWidgets.QWidget):
             self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
         self._image_loader = None
         self._extract_button.setEnabled(True)
-        self._progress.setValue(100)
+        self._progress.setVisible(False)
+        self._clustering_menu.setVisible(True)
 
 
 if __name__ == '__main__':
