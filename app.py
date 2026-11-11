@@ -160,6 +160,7 @@ class MyWidget(QtWidgets.QWidget):
             return
 
         self._loaded_image_count = 0
+        self._browse_button.setEnabled(False)
         self._extract_button.setEnabled(False)
         self._clustering_menu.setVisible(False)
         self._progress.setVisible(True)
@@ -203,6 +204,7 @@ class MyWidget(QtWidgets.QWidget):
         if self._loaded_image_count == 0:
             self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
         self._image_loader = None
+        self._browse_button.setEnabled(True)
         self._extract_button.setEnabled(True)
         self._progress.setVisible(False)
         self._clustering_menu.setVisible(True)
