@@ -54,11 +54,6 @@ class ImageLoader(QtCore.QRunnable):
             self.signals.finished.emit()
 
 
-def load_pixmap(file_path):
-    image = load_image_to_qimage(file_path)
-    return QtGui.QPixmap.fromImage(image) if image is not None else QtGui.QPixmap()
-
-
 class MyWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
