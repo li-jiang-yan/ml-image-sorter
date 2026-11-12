@@ -18,6 +18,22 @@ net = cv2.dnn.readNetFromCaffe(MODEL_PROTO, MODEL_WEIGHTS)
 
 
 @cache
+def load_image_to_qpixmap(file_path):
+    image = load_image_to_qimage(file_path)
+    if image is None:
+        return
+
+    pixmap = QtGui.QPixmap.fromImage(image)
+    if pixmap.isNull():
+        return
+
+    return pixmap.scaled(
+        QtCore.QSize(160, 120),
+        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+        QtCore.Qt.TransformationMode.SmoothTransformation,
+    )
+
+
 def load_image_to_qimage(file_path):
     """Decode an image in a worker thread and return an owned QImage."""
     rgb_array = load_image_to_rgb(file_path)
@@ -62,7 +78,7 @@ def embed_image(file_path):
 
 
 class ImageLoaderSignals(QtCore.QObject):
-    image_loaded = QtCore.Signal(str, QtGui.QImage)
+    image_loaded = QtCore.Signal(str, QtGui.QPixmap)
     progress = QtCore.Signal(int, int)
     finished = QtCore.Signal()
 
@@ -80,7 +96,7 @@ class ImageLoader(QtCore.QRunnable):
         try:
             for completed, file_path in enumerate(self.file_paths):
                 try:
-                    image = load_image_to_qimage(file_path)
+                    image = load_image_to_qpixmap(file_path)
                     if image is not None:
                         self.signals.image_loaded.emit(file_path, image)
                 except Exception as error:
@@ -110,7 +126,7 @@ class ImageEmbedder(QtCore.QRunnable):
         try:
             for completed, file_path in enumerate(self.file_paths):
                 try:
-                    if load_image_to_qimage(file_path) is not None:
+                    if load_image_to_qpixmap(file_path) is not None:
                         embedding = embed_image(file_path)
                         self.signals.image_embedded.emit(file_path, embedding)
                 except Exception as error:
@@ -215,7 +231,7 @@ class MyWidget(QtWidgets.QWidget):
         self._cluster_button.clicked.connect(self.embed_images)
         self._cluster_slider.setRange(0, 0)
         self._cluster_slider.setEnabled(False)
-        self._cluster_slider.sliderReleased.connect(self.group_images)
+        self._cluster_slider.valueChanged.connect(self.group_images)
 
         layout.addWidget(self._cluster_button, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._cluster_slider)
@@ -262,21 +278,14 @@ class MyWidget(QtWidgets.QWidget):
         self._image_loader.signals.finished.connect(self.finish_loading_images)
         self._thread_pool.start(self._image_loader)
 
-    @QtCore.Slot(str, QtGui.QImage)
-    def add_image_to_gallery(self, image_path, image):
+    @QtCore.Slot(str, QtGui.QPixmap)
+    def add_image_to_gallery(self, image_path, pixmap):
         # QPixmap creation and widget updates stay on the GUI thread.
-        pixmap = QtGui.QPixmap.fromImage(image)
-        if pixmap.isNull():
+        if pixmap is None:
             return
 
         thumbnail = QtWidgets.QLabel()
-        thumbnail.setPixmap(
-            pixmap.scaled(
-                QtCore.QSize(160, 120),
-                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                QtCore.Qt.TransformationMode.SmoothTransformation,
-            )
-        )
+        thumbnail.setPixmap(pixmap)
         thumbnail.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         thumbnail.setToolTip(image_path)
 
@@ -332,19 +341,20 @@ class MyWidget(QtWidgets.QWidget):
         self._image_clusterer = None
         self._model = model
         self._progress.setValue(100)
-        self._cluster_slider.setRange(0, 1000)
-        self._cluster_slider.setValue(0)
+        self._cluster_slider.setRange(0, 100)
+        self._cluster_slider.setValue(50)
         self._cluster_slider.setEnabled(True)
         self._scroll_area.setWidget(self._groups_content)
+        self.group_images(self._cluster_slider.value())
 
-    def group_images(self):
+    def group_images(self, slider_value):
         while self._groups_layout.count():
             item = self._groups_layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
 
-        distance_threshold = self._cluster_slider.value() / 1000
+        distance_threshold = slider_value / 100
         n_samples = self._model.n_leaves_
         remainders = list(range(n_samples))
         children = [
@@ -353,7 +363,7 @@ class MyWidget(QtWidgets.QWidget):
             if distance < distance_threshold
         ]
         explored_indexes = []
-        groups = []
+        self._groups = []
 
         def get_group_leaves(i):
             if i >= n_samples:
@@ -371,26 +381,18 @@ class MyWidget(QtWidgets.QWidget):
             explored_indexes.append(index)
             group = get_group_leaves(nodes[0]) + get_group_leaves(nodes[1])
             remainders = [remainder for remainder in remainders if remainder not in group]
-            groups.append(group)
+            self._groups.append(group)
 
-        groups += [[remainder] for remainder in remainders]
+        self._groups += [[remainder] for remainder in remainders]
 
-        for group_index, group in enumerate(groups):
+        for group_index, group in enumerate(self._groups):
             group_box = QtWidgets.QGroupBox(f'Group {group_index + 1}')
             layout = QtWidgets.QGridLayout()
             columns = 4
             for index, embedding_index in enumerate(group):
                 image_path = self._embedding_file_paths[embedding_index]
-                image = load_image_to_qimage(image_path)
-                pixmap = QtGui.QPixmap.fromImage(image)
                 thumbnail = QtWidgets.QLabel()
-                thumbnail.setPixmap(
-                    pixmap.scaled(
-                        QtCore.QSize(160, 120),
-                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                        QtCore.Qt.TransformationMode.SmoothTransformation,
-                    )
-                )
+                thumbnail.setPixmap(load_image_to_qpixmap(image_path))
                 thumbnail.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 thumbnail.setToolTip(image_path)
                 row = index // columns
