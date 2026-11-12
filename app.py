@@ -1,3 +1,5 @@
+import os
+import shutil
 import sys
 from functools import cache
 from pathlib import Path
@@ -161,10 +163,12 @@ class MyWidget(QtWidgets.QWidget):
 
         self.create_folder_upload_box()
         self.create_image_gallery()
+        self.create_image_export_box()
 
         main_layout = QtWidgets.QVBoxLayout()
         main_layout.addWidget(self._folder_upload_box)
         main_layout.addWidget(self._image_gallery)
+        main_layout.addWidget(self._image_export_box)
         self.setLayout(main_layout)
 
     def create_folder_upload_box(self):
@@ -198,6 +202,13 @@ class MyWidget(QtWidgets.QWidget):
 
         self._progress = QtWidgets.QProgressBar(self)
         self._progress.setValue(0)
+        progress_widget = QtWidgets.QWidget()
+        progress_layout = QtWidgets.QHBoxLayout()
+        _, top, _, bottom = progress_layout.getContentsMargins()
+        progress_layout.setContentsMargins(0, top, 0, bottom)
+        progress_layout.addWidget(QtWidgets.QLabel('Progress:'))
+        progress_layout.addWidget(self._progress)
+        progress_widget.setLayout(progress_layout)
 
         self._scroll_area = QtWidgets.QScrollArea()
         self._scroll_area.setWidgetResizable(True)
@@ -211,7 +222,7 @@ class MyWidget(QtWidgets.QWidget):
         self._gallery_content.setLayout(self._gallery_grid)
         self._groups_content.setLayout(self._groups_layout)
         self._scroll_area.setWidget(self._gallery_content)
-        layout.addWidget(self._progress)
+        layout.addWidget(progress_widget)
         layout.addWidget(self._clustering_menu)
         layout.addWidget(self._scroll_area)
         self._image_gallery.setLayout(layout)
@@ -237,6 +248,26 @@ class MyWidget(QtWidgets.QWidget):
         layout.addWidget(self._cluster_slider)
 
         self._clustering_menu.setLayout(layout)
+
+    def create_image_export_box(self):
+        self._image_export_box = QtWidgets.QGroupBox('Export folder')
+        layout = QtWidgets.QHBoxLayout()
+
+        self._export_folder_path = QtWidgets.QLineEdit(readOnly=True)
+        self._export_browse_button = QtWidgets.QPushButton('Browse')
+        self._export_button = QtWidgets.QPushButton('Export Images')
+
+        self._export_browse_button.clicked.connect(self.open_export_folder_dialog)
+        self._export_browse_button.setEnabled(False)
+        self._export_button.clicked.connect(self.export_images)
+        self._export_button.setEnabled(False)
+
+        layout.addWidget(QtWidgets.QLabel('Folder'))
+        layout.addWidget(self._export_folder_path)
+        layout.addWidget(self._export_browse_button)
+        layout.addWidget(self._export_button)
+
+        self._image_export_box.setLayout(layout)
 
     def open_folder_dialog(self):
         self._dir = QtWidgets.QFileDialog.getExistingDirectory()
@@ -305,9 +336,7 @@ class MyWidget(QtWidgets.QWidget):
             self._gallery_grid.addWidget(QtWidgets.QLabel('No images found.'), 0, 0)
         else:
             self._clustering_menu.setVisible(True)
-            self._cluster_button.setEnabled(True)
             self._cluster_slider.setRange(0, 0)
-            self._cluster_slider.setEnabled(False)
         self._image_loader = None
         self._browse_button.setEnabled(True)
         self._extract_button.setEnabled(True)
@@ -316,6 +345,8 @@ class MyWidget(QtWidgets.QWidget):
     def embed_images(self):
         self._embedding_file_paths = []
         self._embeddings = []
+        self._browse_button.setEnabled(False)
+        self._extract_button.setEnabled(False)
         self._cluster_button.setEnabled(False)
         self._image_embedder = ImageEmbedder(self._image_files)
         self._image_embedder.signals.image_embedded.connect(self.add_embedding)
@@ -346,6 +377,7 @@ class MyWidget(QtWidgets.QWidget):
         self._cluster_slider.setEnabled(True)
         self._scroll_area.setWidget(self._groups_content)
         self.group_images(self._cluster_slider.value())
+        self._export_browse_button.setEnabled(True)
 
     def group_images(self, slider_value):
         while self._groups_layout.count():
@@ -400,6 +432,37 @@ class MyWidget(QtWidgets.QWidget):
                 layout.addWidget(thumbnail, row, column)
             group_box.setLayout(layout)
             self._groups_layout.addWidget(group_box)
+
+    def open_export_folder_dialog(self):
+        self._export_dir = QtWidgets.QFileDialog.getExistingDirectory()
+
+        if self._export_dir:
+            self._export_folder_path.setText(self._export_dir)
+            self._export_button.setEnabled(True)
+
+    def export_images(self):
+        for group_index, group in enumerate(self._groups):
+            folder_path = os.path.join(self._export_dir, f'group_{group_index + 1}')
+            os.makedirs(folder_path, exist_ok=True)
+            for embedding_index in group:
+                image_path = self._embedding_file_paths[embedding_index]
+                shutil.copy(image_path, folder_path)
+
+        unexported_file_paths = [
+            file_path
+            for file_path in self._image_files
+            if file_path not in self._embedding_file_paths
+        ]
+        if unexported_file_paths:
+            folder_path = os.path.join(self._export_dir, 'ungrouped_files')
+            os.makedirs(folder_path, exist_ok=True)
+            for file_path in unexported_file_paths:
+                shutil.copy(file_path, folder_path)
+
+        dlg = QtWidgets.QMessageBox(self)
+        dlg.setWindowTitle('Export Complete')
+        dlg.setText('Exporting of images is complete.')
+        dlg.exec()
 
 
 if __name__ == '__main__':
