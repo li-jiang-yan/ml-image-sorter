@@ -183,17 +183,21 @@ class MyWidget(QtWidgets.QWidget):
         self._progress = QtWidgets.QProgressBar(self)
         self._progress.setValue(0)
 
-        scroll_area = QtWidgets.QScrollArea()
-        scroll_area.setWidgetResizable(True)
+        self._scroll_area = QtWidgets.QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
 
-        gallery_content = QtWidgets.QWidget()
+        self._gallery_content = QtWidgets.QWidget()
         self._gallery_grid = QtWidgets.QGridLayout()
 
-        gallery_content.setLayout(self._gallery_grid)
-        scroll_area.setWidget(gallery_content)
+        self._groups_content = QtWidgets.QWidget()
+        self._groups_layout = QtWidgets.QVBoxLayout()
+
+        self._gallery_content.setLayout(self._gallery_grid)
+        self._groups_content.setLayout(self._groups_layout)
+        self._scroll_area.setWidget(self._gallery_content)
         layout.addWidget(self._progress)
         layout.addWidget(self._clustering_menu)
-        layout.addWidget(scroll_area)
+        layout.addWidget(self._scroll_area)
         self._image_gallery.setLayout(layout)
 
     def create_clustering_menu(self):
@@ -231,6 +235,8 @@ class MyWidget(QtWidgets.QWidget):
         self.display_images()
 
     def display_images(self):
+        self._scroll_area.setWidget(self._gallery_content)
+
         while self._gallery_grid.count():
             item = self._gallery_grid.takeAt(0)
             widget = item.widget()
@@ -329,8 +335,15 @@ class MyWidget(QtWidgets.QWidget):
         self._cluster_slider.setRange(0, 1000)
         self._cluster_slider.setValue(0)
         self._cluster_slider.setEnabled(True)
+        self._scroll_area.setWidget(self._groups_content)
 
     def group_images(self):
+        while self._groups_layout.count():
+            item = self._groups_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
         distance_threshold = self._cluster_slider.value() / 1000
         n_samples = self._model.n_leaves_
         remainders = list(range(n_samples))
@@ -361,6 +374,30 @@ class MyWidget(QtWidgets.QWidget):
             groups.append(group)
 
         groups += [[remainder] for remainder in remainders]
+
+        for group_index, group in enumerate(groups):
+            group_box = QtWidgets.QGroupBox(f'Group {group_index + 1}')
+            layout = QtWidgets.QGridLayout()
+            columns = 4
+            for index, embedding_index in enumerate(group):
+                image_path = self._embedding_file_paths[embedding_index]
+                image = load_image_to_qimage(image_path)
+                pixmap = QtGui.QPixmap.fromImage(image)
+                thumbnail = QtWidgets.QLabel()
+                thumbnail.setPixmap(
+                    pixmap.scaled(
+                        QtCore.QSize(160, 120),
+                        QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                        QtCore.Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                thumbnail.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                thumbnail.setToolTip(image_path)
+                row = index // columns
+                column = index % columns
+                layout.addWidget(thumbnail, row, column)
+            group_box.setLayout(layout)
+            self._groups_layout.addWidget(group_box)
 
 
 if __name__ == '__main__':
