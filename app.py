@@ -211,6 +211,7 @@ class MyWidget(QtWidgets.QWidget):
         self._cluster_button.clicked.connect(self.embed_images)
         self._cluster_slider.setRange(0, 0)
         self._cluster_slider.setEnabled(False)
+        self._cluster_slider.sliderReleased.connect(self.group_images)
 
         layout.addWidget(self._cluster_button, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self._cluster_slider)
@@ -325,7 +326,41 @@ class MyWidget(QtWidgets.QWidget):
         self._image_clusterer = None
         self._model = model
         self._progress.setValue(100)
-        self._cluster_slider.setRange(0, 100)
+        self._cluster_slider.setRange(0, 1000)
+        self._cluster_slider.setValue(0)
+        self._cluster_slider.setEnabled(True)
+
+    def group_images(self):
+        distance_threshold = self._cluster_slider.value() / 1000
+        n_samples = self._model.n_leaves_
+        remainders = list(range(n_samples))
+        children = [
+            self._model.children_[index]
+            for index, distance in enumerate(self._model.distances_)
+            if distance < distance_threshold
+        ]
+        explored_indexes = []
+        groups = []
+
+        def get_group_leaves(i):
+            if i >= n_samples:
+                index = i - n_samples
+                nodes = children[index]
+                explored_indexes.append(index)
+                return get_group_leaves(nodes[0]) + get_group_leaves(nodes[1])
+            else:
+                return [int(i)]
+
+        for index in range(len(children) - 1, -1, -1):
+            if index in explored_indexes:
+                continue
+            nodes = children[index]
+            explored_indexes.append(index)
+            group = get_group_leaves(nodes[0]) + get_group_leaves(nodes[1])
+            remainders = [remainder for remainder in remainders if remainder not in group]
+            groups.append(group)
+
+        groups += [[remainder] for remainder in remainders]
 
 
 if __name__ == '__main__':
