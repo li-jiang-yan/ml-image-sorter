@@ -15,6 +15,7 @@ pillow_heif.register_heif_opener()
 
 MODEL_PROTO = r'SqueezeNet\SqueezeNet_v1.1\deploy.prototxt'
 MODEL_WEIGHTS = r'SqueezeNet\SqueezeNet_v1.1\squeezenet_v1.1.caffemodel'
+APP_ICON = r'assets\app_icon.ico'
 
 net = cv2.dnn.readNetFromCaffe(MODEL_PROTO, MODEL_WEIGHTS)
 
@@ -162,6 +163,9 @@ class ImageClusterer(QtCore.QRunnable):
 class MyWidget(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
+
+        self.setWindowTitle('Image Sorter')
+        self.setWindowIcon(QtGui.QIcon(APP_ICON))
 
         self.create_folder_upload_box()
         self.create_image_gallery()
@@ -469,6 +473,7 @@ class MyWidget(QtWidgets.QWidget):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])
+    app.setWindowIcon(QtGui.QIcon(str(APP_ICON)))
 
     widget = MyWidget()
     widget.showMaximized()
