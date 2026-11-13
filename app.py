@@ -52,11 +52,13 @@ def load_image_to_qimage(file_path):
 def load_image_to_rgb(file_path):
     if file_path.lower().endswith('.heic'):
         pil_img = Image.open(file_path).convert('RGB')
-        return np.array(pil_img)
+        rgb_array = np.array(pil_img)
+        return cv2.resize(rgb_array, (224, 224), interpolation=cv2.INTER_LINEAR)
 
     elif file_path.lower().endswith(('.png', '.jpg', '.jpeg')):
         bgr = cv2.imread(file_path)
-        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        rgb_array = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        return cv2.resize(rgb_array, (224, 224), interpolation=cv2.INTER_LINEAR)
 
 
 @cache
